@@ -11,10 +11,18 @@ rownames(expr_mat) <- genes
 colnames(expr_mat) <- cells
 
 library(RaceID)
+
+# Convert to SCseq
 sc <- SCseq(as.matrix(expr_mat))
+# Filter by number of transcripts
 sc <- filterdata(sc,mintotal=2000)
+
+# Compute distance matrix
 sc <- compdist(sc,metric="pearson")
+
+# Perform clustering
 sc <- clustexp(sc)
+
 sc <- findoutliers(sc)
 sc <- rfcorrect(sc)
 sc <- comptsne(sc)
