@@ -1,4 +1,5 @@
 library(Matrix)
+library(RaceID)
 # Read the matrix (replace with the correct path to matrix file)
 expr_mat <- readMM("../data/GSE294399_WBC_020823_matrix.mtx/matrix.mtx")
 
@@ -10,12 +11,10 @@ cells <- read.table("../data/GSE294399_WBC_020823_barcodes.tsv/barcodes.tsv", st
 rownames(expr_mat) <- genes
 colnames(expr_mat) <- cells
 
-library(RaceID)
-
 # Convert to SCseq
 sc <- SCseq(as.matrix(expr_mat))
 # Filter by number of transcripts
-sc <- filterdata(sc,mintotal=2000)
+sc <- filterdata(sc,mintotal=1)
 
 # Compute distance matrix
 sc <- compdist(sc,metric="pearson")
@@ -28,3 +27,4 @@ sc <- rfcorrect(sc)
 sc <- comptsne(sc)
 sc <- compfr(sc)
 plotmap(sc)
+save(sc, file = "cluster_assignments.RData")

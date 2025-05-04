@@ -1,65 +1,71 @@
-# Get unique cluster numbers
+# Load full gene list from features.tsv (before filtering)
+all_genes <- read.table("../data/GSE294399_WBC_020823_features.tsv/features.tsv", stringsAsFactors = FALSE)[,1]
+all_gene_indices <- setNames(seq_along(all_genes), all_genes)
+
+# Get all unique cluster IDs
 all_clusters <- sort(unique(sc@cpart))
 marker_genes_per_cluster <- list()
 
-# Get gene names and assign indices
-gene_names <- rownames(getfdata(sc))
-gene_indices <- setNames(seq_along(gene_names), gene_names)
-
-# For each cluster, compute and store sorted, unique marker gene indices
+# Compute marker genes using full indexing
 for (cl in all_clusters) {
-  de <- clustdiffgenes(sc, cl, pvalue=0.01)
+  de <- clustdiffgenes(sc, cl, pvalue = 0.01)
   upregulated <- rownames(de$dg[de$dg$fc > 1, ])
-  marker_indices <- sort(unique(gene_indices[upregulated]))
+  marker_indices <- sort(unique(all_gene_indices[upregulated]))
   marker_genes_per_cluster[[as.character(cl)]] <- marker_indices
 }
 
-# Format as list of rows for output
+# Format for CSV
 output <- lapply(names(marker_genes_per_cluster), function(cl) {
   c(as.integer(cl), marker_genes_per_cluster[[cl]])
 })
 
-# Write to CSV
+# Save to CSV
 write.table(do.call(rbind, output),
-            file = "cluster_marker_genes.csv",
+            file = "../cluster_marker_genes.csv",
             sep = ",",
             row.names = FALSE,
             col.names = FALSE)
 
-# part 2: export cell genes
+# Load full gene list again
+all_genes <- read.table("../data/GSE294399_WBC_020823_features.tsv/features.tsv", stringsAsFactors = FALSE)[,1]
+all_gene_indices <- setNames(seq_along(all_genes), all_genes)
 
-# Get expression data and gene info
-expr_mat <- getfdata(sc)
-gene_names <- rownames(expr_mat)
-gene_indices <- setNames(seq_along(gene_names), gene_names)
+# Prepare cell and gene data
+expr_mat <- getfdata(sc)  # filtered matrix
+gene_names_filtered <- rownames(expr_mat)
 cell_names <- colnames(expr_mat)
-cell_indices <- setNames(seq_along(cell_names), cell_names)
 
-# Build a gene index list for each cluster (from Part 1)
+# Map filtered gene names to full indices
+filtered_gene_indices <- all_gene_indices[gene_names_filtered]
+
+# Build cluster gene sets using full indexing
+all_clusters <- sort(unique(sc@cpart))
 cluster_gene_sets <- list()
+
 for (cl in all_clusters) {
-  de <- clustdiffgenes(sc, cl, pvalue=0.01)
+  de <- clustdiffgenes(sc, cl, pvalue = 0.01)
   upregulated <- rownames(de$dg[de$dg$fc > 1, ])
-  cluster_gene_sets[[as.character(cl)]] <- gene_indices[upregulated]
+  cluster_gene_sets[[as.character(cl)]] <- sort(unique(all_gene_indices[upregulated]))
 }
 
-# Initialize output list
+# Generate output rows
 output <- list()
 
-for (cell_name in cell_names) {
-  cell_idx <- cell_indices[cell_name]
+for (cell_idx in seq_along(cell_names)) {
+  cell_name <- cell_names[cell_idx]
   cluster <- sc@cpart[cell_name]
   cl_genes <- cluster_gene_sets[[as.character(cluster)]]
 
-  # Get non-zero expression genes for this cell
+  # Get expressed gene indices (based on original indices)
   expr_values <- expr_mat[, cell_name]
-  cell_genes <- which(expr_values > 0)
+  present_filtered <- which(expr_values > 0)
+  present_genes <- filtered_gene_indices[present_filtered]
 
-  # Compare
-  present_not_cluster <- setdiff(cell_genes, cl_genes)
-  absent_but_cluster <- setdiff(cl_genes, cell_genes)
+  # Compare sets
+  present_not_cluster <- setdiff(present_genes, cl_genes)
+  absent_but_cluster <- setdiff(cl_genes, present_genes)
 
-  # Assemble row
+  # Assemble output row
   row <- c(cell_idx, cluster, length(present_not_cluster),
            present_not_cluster,
            length(absent_but_cluster),
@@ -67,7 +73,7 @@ for (cell_name in cell_names) {
   output[[length(output)+1]] <- row
 }
 
-# Pad rows to equal length
+# Pad rows for CSV
 max_len <- max(sapply(output, length))
 output_padded <- lapply(output, function(row) {
   length(row) <- max_len
@@ -75,5 +81,9 @@ output_padded <- lapply(output, function(row) {
 })
 
 # Write to CSV
-write.table(do.call(rbind, output_padded), file="cell_gene_presence.csv", sep=",", 
-            row.names=FALSE, col.names=FALSE, na="")
+write.table(do.call(rbind, output_padded),
+            file = "../cell_gene_presence.csv",
+            sep = ",",
+            row.names = FALSE,
+            col.names = FALSE,
+            na = "")
