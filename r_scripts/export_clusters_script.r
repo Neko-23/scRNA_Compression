@@ -1,7 +1,7 @@
 # Load full gene list from features.tsv (before filtering)
 library(Matrix)
 library(RaceID)
-load("cluster_assignments.RData")
+load("random_cluster_assignments.RData")
 genes <- read.table("../data/GSE294399_WBC_020823_features.tsv/features.tsv", stringsAsFactors = FALSE)[,1]
 cells <- read.table("../data/GSE294399_WBC_020823_barcodes.tsv/barcodes.tsv", stringsAsFactors = FALSE)[,1]
 # --- Map filtered gene names back to full list ---
@@ -17,7 +17,7 @@ all_clusters <- sort(unique(sc@cpart))
 marker_genes_per_cluster <- list()
 
 for (cl in all_clusters) {
-  de <- clustdiffgenes(sc, cl, pvalue = 0.01)
+  de <- clustdiffgenes(sc, cl, pvalue = 0)
   upregulated <- rownames(de$dg[de$dg$fc > 1, ])
   marker_indices <- sort(unique(all_gene_indices[upregulated]))
   marker_genes_per_cluster[[as.character(cl)]] <- marker_indices
