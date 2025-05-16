@@ -7,6 +7,8 @@ import heapq
 import collections
 import os
 
+
+# Huffman code retrieved from https://www.geeksforgeeks.org/huffman-coding-in-python/
 class Node:
     def __init__(self, symbol=None, frequency=None):
         self.symbol = symbol
