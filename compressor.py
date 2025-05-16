@@ -183,4 +183,52 @@ def high_level_decompress(in_path, matrix_path):
         for i, g in enumerate(sorted(gene_map[cell_idx][1])):
             cell_gene_matrix[g, cell_idx] = counts[cell_idx][i]
     
-    print("Accuracy Check " + "Passed" if (cell_gene_matrix != matrix).sum(axis=None) == 0 else "Failed")
+    print("High Level Accuracy Check " + "Passed" if (cell_gene_matrix != matrix).sum(axis=None) == 0 else "Failed")
+
+def low_level_decompress(in_path):
+    def helper_decompress(target):
+        with open(in_path + '/low_level_compress/' + target + '_huffman_tree', 'rb') as file:
+            # Load the pickled object from the file
+            root, length = pickle.load(file)
+        file.close()
+
+        decoded_lines = []
+        count = 0
+        with open(in_path + '/low_level_compress/huffman_encoded_' + target, 'rb') as file:
+            decoded_line = []
+            cur = root
+            n = 0
+            while byte := file.read(1):
+                for i in range(7,-1,-1):
+                    if count == length:
+                        break
+                    sym = cur.symbol
+                    if sym is not None:
+                        count += 1
+                        if sym != '\n':
+                            decoded_line.append(sym)
+                        else:
+                            decoded_lines.append(decoded_line)
+                            decoded_line = []
+                        cur = root
+                    if (byte[0] >> i) & 1 == 0:
+                        cur = cur.left
+                    else:
+                        cur = cur.right
+            if decoded_line:
+                decoded_lines.append(decoded_line)
+        file.close()
+
+        result = 'ENCODED CORRECTLY!'
+        lines = ''
+        with open(in_path + '/high_level_compress/' + target + '.csv', newline='') as f:
+            lines = f.readlines()
+        for i,l in enumerate(lines):
+            l = list(map(int, l.split(',')))
+            if (l != decoded_lines[i]):
+                result = 'ENCODED WRONG!!'
+                break
+        print(target + ' huffman : ' + result)
+
+    helper_decompress('deltas')
+    helper_decompress('counts')
