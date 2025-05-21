@@ -5,5 +5,5 @@ Single-cell RNA sequencing (scRNA-seq) technologies produce large and sparse cou
 
 ## Running our Compression Pipeline
 1. Retrieve cluster labels by running k-means or our neural.ipynb notebook.
-2. Set the sample dataset number and path that you wish to store the output in 
-3. Run 
+2. Set the sample dataset number and path that you wish to store the output in compressoin_pipeline.ipynb
+3. Run the compression_pipeline.ipynb notebook
