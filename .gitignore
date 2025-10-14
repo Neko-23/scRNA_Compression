@@ -2,3 +2,5 @@ venv/*
 matrix.csv
 RaceID3_StemID2_package-master/*
 .vscode/*
+*.pyc
+.ipynb_checkpoints/*
