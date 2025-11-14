@@ -4,5 +4,8 @@ RaceID3_StemID2_package-master/*
 .vscode/*
 *.pyc
 .ipynb_checkpoints/*
-compressed/
+compressed/kmeans/sample*/k*/*
+!compressed/kmeans/sample*/k*/*.png
+compressed/neural/sample*/k*/*
+!compressed/neural/sample*/k*/*.png
 data/
