@@ -8,4 +8,5 @@ compressed/kmeans/sample*/k*/*
 !compressed/kmeans/sample*/k*/*.png
 compressed/neural/sample*/k*/*
 !compressed/neural/sample*/k*/*.png
+fpgrowth.ipynb
 data/
