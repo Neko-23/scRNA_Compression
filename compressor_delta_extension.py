@@ -111,27 +111,109 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         deltas[i] = genes_set - cluster_genes[cluster_labels[i]]
         counts.append(matrix[:,i][matrix[:,i] > 0].tolist())
     
-    if not os.path.isdir(out_path + '/high_level_compress'):
-        os.mkdir(out_path + '/high_level_compress')
-    with open(out_path + '/high_level_compress/cluster_genes.csv', 'w', newline='') as file:
+    if not os.path.isdir(out_path + '/high_level_compress_delta_extension'):
+        os.mkdir(out_path + '/high_level_compress_delta_extension')
+    with open(out_path + '/high_level_compress_delta_extension/cluster_genes.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         for k in cluster_genes:
             writer.writerow(list(cluster_genes[k]))
 
-    with open(out_path + '/high_level_compress/deltas.csv', 'w', newline='') as file:
+    with open(out_path + '/high_level_compress_delta_extension/deltas.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         for d in deltas:
             writer.writerow([cluster_labels[d]] + list(deltas[d]))
 
-    with open(out_path + '/high_level_compress/counts.csv', 'w', newline='') as file:
+    with open(out_path + '/high_level_compress_delta_extension/counts.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         for c in counts:
             writer.writerow(c)
 
-    def low_level_compress(folder_num):
-        for file_name in os.listdir(out_path + '/high_level_compress'+folder_num):
+    # compress deltas further
+    def compress_high_level_deltas(in_path):
+        with open(in_path + '/high_level_compress_delta_extension/deltas.csv', newline='') as f:
+            reader = csv.reader(f)
+            dataset = []
+            cluster_labels = []
+            for i, row in enumerate(reader):
+                dataset.append(row[1:])
+                cluster_labels.append(row[0])
+            f.close()
+
+        chosens = []
+        flags = []
+        support = 0.95
+        iter = 1
+        while len(chosens) < 2000:
+            te = TransactionEncoder()
+            te_ary = te.fit(dataset).transform(dataset)
+            df = pd.DataFrame(te_ary, columns=te.columns_)
+            
+            if support < 1:
+                df_iter = df.sample(n = 2, random_state=iter)
+            else:
+                df_iter = df
+
+            s = fpgrowth(df_iter, min_support=support, use_colnames=True, max_len = 2)
+
+            mlength = 1
+            chosen = []
+            choice = None
+            for ele in s['itemsets']:
+                if len(ele) > mlength:
+                    mlength = len(ele)
+                    choice = set(ele)
+            if choice == None:
+                support -= 0.01
+                support = round(support, 2)
+                iter += 1
+                continue
+            chosen.append(choice)
+            temp_set = choice
+            for ele in s['itemsets']:
+                ele_set = set(ele)
+                if len(ele) > 1 and not temp_set.intersection(ele_set):
+                    temp_set = temp_set.union(ele_set)
+                    chosen.append(ele_set)
+            if len(chosen) < 50:
+                support -= 0.01
+                support = round(support, 2)
+            chosens = chosens + chosen
+
+            deltas = [set(x) for x in dataset]
+            flag = []
+            for c in chosen:
+                f = set()
+                for i, d in enumerate(deltas):
+                    if c.intersection(d) == c:
+                        deltas[i] = (d - c)
+                        f.add(i)
+                flag.append(f)
+            flags += flag
+            print('support: ', support)
+            print('chosens: ', len(chosens))
+            iter += 1
+            dataset = [list(x) for x in deltas]
+        
+        with open(in_path + '/high_level_compress_delta_extension/deltas.csv', 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([len(chosens)]) # number of common item sets
+            for chosen in chosens:
+                writer.writerow(list(chosen)) # write current commom item set
+            for i, d in enumerate(deltas):
+                row = [cluster_labels[i]]
+                for j, flag in enumerate(flags):
+                    if i in flag:
+                        row += ['#'+str(j)]
+                row += list(d)
+                writer.writerow(row)
+            file.close()
+
+    compress_high_level_deltas(out_path)
+
+    def low_level_compress():
+        for file_name in os.listdir(out_path + '/high_level_compress_delta_extension'):
             if file_name != 'cluster_genes.csv':
-                with open(out_path + '/high_level_compress'+folder_num+'/' + file_name, newline='') as f:
+                with open(out_path + '/high_level_compress_delta_extension/' + file_name, newline='') as f:
                     lines = f.readlines()
 
                     content = []
@@ -144,14 +226,14 @@ def compress(cluster_assignments_file, matrix_path, out_path):
                     huffman_codes = generate_huffman_codes(root)
 
                     # Pickle the array and save to a file
-                    if not os.path.isdir(out_path + '/low_level_compress'+folder_num):
-                        os.mkdir(out_path + '/low_level_compress'+folder_num)
-                    filename = out_path + '/low_level_compress'+folder_num+'/' + file_name.replace('.csv', '') + '_huffman_tree'
+                    if not os.path.isdir(out_path + '/low_level_compress_delta_extension'):
+                        os.mkdir(out_path + '/low_level_compress_delta_extension')
+                    filename = out_path + '/low_level_compress_delta_extension/' + file_name.replace('.csv', '') + '_huffman_tree'
                     with open(filename, 'wb') as file:
                         pickle.dump((root, len(content)), file)
                     file.close()
                     
-                    with open(out_path + '/low_level_compress'+folder_num+'/huffman_encoded_'+file_name.replace('.csv', ''), 'wb') as file:
+                    with open(out_path + '/low_level_compress_delta_extension/huffman_encoded_'+file_name.replace('.csv', ''), 'wb') as file:
                         leftover = ''
                         for index, l in enumerate(lines):
                             elems = l.replace('\r', '').replace('\n', '').split(',')
@@ -177,55 +259,47 @@ def compress(cluster_assignments_file, matrix_path, out_path):
                     file.close()
                 f.close()
     
-    low_level_compress('') # low-level compress original implementation
+    low_level_compress()
 
 def high_level_decompress(in_path, matrix_path):
     gene_map = defaultdict(lambda: [None, set()])
     cluster_map = defaultdict(lambda: set())
     counts = []
-    with open(in_path + '/deltas.csv', newline='') as f:
+    with open(in_path + '/high_level_compress_delta_extension/deltas.csv', newline='') as f:
         reader = csv.reader(f)
-        if in_path[-1] == '2':
-            num_item_sets = 0
-            item_sets = []
-            deltas = []
-            for i, row in enumerate(reader):
-                if i == 0:
-                    num_item_sets = int(row[0])
-                elif i <= num_item_sets:
-                    item_sets.append((int(row[0]), int(row[1])))
-                else:
-                    delta = []
-                    for c in row:
-                        if c[0] != '#':
-                            delta.append(int(c))
-                        else:
-                            a, b = item_sets[int(c[1:])]
-                            delta.append(a)
-                            delta.append(b)
-                    deltas.append(delta)
-            
-            for i, d in enumerate(deltas):
-                gene_map[i] = [d[0], set(d[1:])]
-                cluster_map[d[0]].add(i)
-                num_cells = i            
-        else:
-            for i, row in enumerate(reader):
-                cluster = int(row[0])
-                genes = set(map(int, row[1:])) if len(row) > 1 else set()
-                gene_map[i] = [cluster, genes]
-                cluster_map[cluster].add(i)
-                num_cells = i
+        num_item_sets = 0
+        item_sets = []
+        deltas = []
+        for i, row in enumerate(reader):
+            if i == 0:
+                num_item_sets = int(row[0])
+            elif i <= num_item_sets:
+                item_sets.append((int(row[0]), int(row[1])))
+            else:
+                delta = []
+                for c in row:
+                    if c[0] != '#':
+                        delta.append(int(c))
+                    else:
+                        a, b = item_sets[int(c[1:])]
+                        delta.append(a)
+                        delta.append(b)
+                deltas.append(delta)
+        
+        for i, d in enumerate(deltas):
+            gene_map[i] = [d[0], set(d[1:])]
+            cluster_map[d[0]].add(i)
+            num_cells = i            
         f.close()
 
-    with open(in_path + '/cluster_genes.csv', newline='') as f:
+    with open(in_path + '/high_level_compress_delta_extension/cluster_genes.csv', newline='') as f:
         reader = csv.reader(f)
         for cluster, row in enumerate(reader):
             genes = set(map(int, row))
             for cell in cluster_map[cluster]:
                 gene_map[cell][1] = gene_map[cell][1].union(genes)
 
-    with open(in_path + '/counts.csv', newline='') as f:
+    with open(in_path + '/high_level_compress_delta_extension/counts.csv', newline='') as f:
         reader = csv.reader(f)
         for row in reader:
             counts.append(row)
@@ -238,16 +312,16 @@ def high_level_decompress(in_path, matrix_path):
     
     print("High Level Accuracy Check " + "Passed" if (cell_gene_matrix != matrix).sum(axis=None) == 0 else "Failed")    
 
-def low_level_decompress(in_path, folder_num):
+def low_level_decompress(in_path):
     def helper_decompress(target):
-        with open(in_path + '/low_level_compress'+folder_num+'/' + target + '_huffman_tree', 'rb') as file:
+        with open(in_path + '/low_level_compress_delta_extension/' + target + '_huffman_tree', 'rb') as file:
             # Load the pickled object from the file
             root, length = pickle.load(file)
         file.close()
 
         decoded_lines = []
         count = 0
-        with open(in_path + '/low_level_compress'+folder_num+'/huffman_encoded_' + target, 'rb') as file:
+        with open(in_path + '/low_level_compress_delta_extension/huffman_encoded_' + target, 'rb') as file:
             decoded_line = []
             cur = root
             n = 0
@@ -274,7 +348,7 @@ def low_level_decompress(in_path, folder_num):
 
         result = 'ENCODED CORRECTLY!'
         lines = ''
-        with open(in_path + '/high_level_compress'+folder_num+'/' + target + '.csv', newline='') as f:
+        with open(in_path + '/high_level_compress_delta_extension/' + target + '.csv', newline='') as f:
             lines = f.readlines()
         for i,l in enumerate(lines):
             l = list(l.replace('\r', '').replace('\n', '').split(','))

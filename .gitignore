@@ -5,8 +5,8 @@ RaceID3_StemID2_package-master/*
 *.pyc
 .ipynb_checkpoints/*
 compressed/kmeans/sample*/k*/*
-!compressed/kmeans/sample*/k*/*.png
+!compressed/kmeans/sample*/k*/*[.pkl, .png]
 compressed/neural/sample*/k*/*
-!compressed/neural/sample*/k*/*.png
+!compressed/neural/sample*/k*/*[.pkl, .png]
 fpgrowth.ipynb
 data/
