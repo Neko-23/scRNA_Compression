@@ -241,16 +241,7 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         content = []
         for l in lines:
             # tolerate stray whitespace and empty tokens
-            parts = l.replace("\r", "").replace("\n", "").split(",")
-            for p in parts:
-                p = p.strip()
-                if p == "":
-                    continue
-                try:
-                    content.append(int(p))
-                except ValueError:
-                    # ignore malformed tokens
-                    continue
+            content += list(map(str, l.replace("\r", "").replace("\n", "").split(",")))
             content.append("\n")
         if content:
             content = content[:-1]
@@ -276,7 +267,7 @@ def compress(cluster_assignments_file, matrix_path, out_path):
                     if p.strip() != ""
                 ]
                 try:
-                    elems = list(map(int, elems))
+                    elems = list(map(str, elems))
                 except ValueError:
                     # skip malformed lines
                     elems = []
