@@ -128,56 +128,75 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         for c in counts:
             writer.writerow(c)
 
-    def low_level_compress(folder_num):
-        for file_name in os.listdir(out_path + '/high_level_compress'+folder_num):
-            if file_name != 'cluster_genes.csv':
-                with open(out_path + '/high_level_compress'+folder_num+'/' + file_name, newline='') as f:
-                    lines = f.readlines()
+    high_level_dir = os.path.join(out_path, "high_level_compress")
+    def low_level_compress(target):
+        src_file = os.path.join(high_level_dir, f"{target}.csv")
+        with open(src_file, newline="") as f:
+            lines = f.readlines()
 
-                    content = []
-                    for l in lines:
-                        content += list(map(str, l.replace('\r', '').replace('\n', '').split(',')))
-                        content.append('\n')
-                    content = content[:-1]
+        content = []
+        for l in lines:
+            # tolerate stray whitespace and empty tokens
+            parts = l.replace("\r", "").replace("\n", "").split(",")
+            for p in parts:
+                p = p.strip()
+                if p == "":
+                    continue
+                try:
+                    content.append(int(p))
+                except ValueError:
+                    # ignore malformed tokens
+                    continue
+            content.append("\n")
+        if content:
+            content = content[:-1]
 
-                    root = build_huffman_tree(collections.Counter(content))
-                    huffman_codes = generate_huffman_codes(root)
+        root = build_huffman_tree(collections.Counter(content))
+        huffman_codes = generate_huffman_codes(root)
 
-                    # Pickle the array and save to a file
-                    if not os.path.isdir(out_path + '/low_level_compress'+folder_num):
-                        os.mkdir(out_path + '/low_level_compress'+folder_num)
-                    filename = out_path + '/low_level_compress'+folder_num+'/' + file_name.replace('.csv', '') + '_huffman_tree'
-                    with open(filename, 'wb') as file:
-                        pickle.dump((root, len(content)), file)
-                    file.close()
-                    
-                    with open(out_path + '/low_level_compress'+folder_num+'/huffman_encoded_'+file_name.replace('.csv', ''), 'wb') as file:
-                        leftover = ''
-                        for index, l in enumerate(lines):
-                            elems = l.replace('\r', '').replace('\n', '').split(',')
-                            elems = list(map(str, elems))
-                            if index < len(lines) - 1:
-                                elems.append('\n')
-                            binary_string = leftover
-                            for e in elems:
-                                binary_string += huffman_codes[e]
+        # Pickle the array and save to a file
+        low_level_dir = os.path.join(out_path, "low_level_compress")
+        os.makedirs(low_level_dir, exist_ok=True)
+        filename = os.path.join(low_level_dir, f"{target}_huffman_tree")
+        with open(filename, "wb") as file:
+            pickle.dump((root, len(content)), file)
 
-                            main_part = binary_string[:(8 * (len(binary_string) // 8))]
-                            leftover = binary_string[(8 * (len(binary_string) // 8)):]
+        with open(
+            os.path.join(low_level_dir, f"huffman_encoded_{target}"), "wb"
+        ) as file:
+            leftover = ""
+            for index, l in enumerate(lines):
+                elems = [
+                    p
+                    for p in l.replace("\r", "").replace("\n", "").split(",")
+                    if p.strip() != ""
+                ]
+                try:
+                    elems = list(map(int, elems))
+                except ValueError:
+                    # skip malformed lines
+                    elems = []
+                if index < len(lines) - 1:
+                    elems.append("\n")
+                binary_string = leftover
+                for e in elems:
+                    binary_string += huffman_codes[e]
 
-                            for i in range(0, len(main_part), 8):
-                                byte_string = main_part[i:i + 8]
-                                byte_value = int(byte_string, 2)
-                                file.write(bytes([byte_value]))
+                main_part = binary_string[: (8 * (len(binary_string) // 8))]
+                leftover = binary_string[(8 * (len(binary_string) // 8)) :]
 
-                        if leftover:
-                            leftover = leftover.ljust(8, '0')
-                            byte_value = int(leftover, 2)
-                            file.write(bytes([byte_value]))
-                    file.close()
-                f.close()
-    
-    low_level_compress('') # low-level compress original implementation
+                for i in range(0, len(main_part), 8):
+                    byte_string = main_part[i : i + 8]
+                    byte_value = int(byte_string, 2)
+                    file.write(bytes([byte_value]))
+
+            if leftover:
+                leftover = leftover.ljust(8, "0")
+                byte_value = int(leftover, 2)
+                file.write(bytes([byte_value]))
+
+    low_level_compress("deltas")
+    low_level_compress("counts")
 
 def high_level_decompress(in_path, matrix_path):
     gene_map = defaultdict(lambda: [None, set()])
@@ -213,52 +232,70 @@ def high_level_decompress(in_path, matrix_path):
     
     print("High Level Accuracy Check " + "Passed" if (cell_gene_matrix != matrix).sum(axis=None) == 0 else "Failed")    
 
-def low_level_decompress(in_path, folder_num):
+def low_level_decompress(in_path):
     def helper_decompress(target):
-        with open(in_path + '/low_level_compress'+folder_num+'/' + target + '_huffman_tree', 'rb') as file:
+        tree_file = os.path.join(
+            in_path, "low_level_compress", f"{target}_huffman_tree"
+        )
+        with open(tree_file, "rb") as file:
             # Load the pickled object from the file
             root, length = pickle.load(file)
-        file.close()
 
         decoded_lines = []
         count = 0
-        with open(in_path + '/low_level_compress'+folder_num+'/huffman_encoded_' + target, 'rb') as file:
+        enc_file = os.path.join(
+            in_path, "low_level_compress", f"huffman_encoded_{target}"
+        )
+        with open(enc_file, "rb") as file:
             decoded_line = []
             cur = root
-            n = 0
+            stop = False
             while byte := file.read(1):
-                for i in range(7,-1,-1):
-                    if count == length:
+                b = byte[0]
+                for i in range(7, -1, -1):
+                    if count >= length:
+                        stop = True
                         break
-                    sym = cur.symbol
-                    if sym is not None:
+                    # traverse the tree according to the next bit
+                    bit = (b >> i) & 1
+                    cur = cur.right if bit else cur.left
+                    if cur is None:
+                        # malformed traversal or padding: reset
+                        cur = root
+                        continue
+                    # when we reach a leaf, emit symbol
+                    if cur.symbol is not None:
                         count += 1
-                        if sym != '\n':
+                        sym = cur.symbol
+                        if sym != "\n":
                             decoded_line.append(sym)
                         else:
                             decoded_lines.append(decoded_line)
                             decoded_line = []
                         cur = root
-                    if (byte[0] >> i) & 1 == 0:
-                        cur = cur.left
-                    else:
-                        cur = cur.right
+                if stop:
+                    break
             if decoded_line:
                 decoded_lines.append(decoded_line)
-        file.close()
 
-        result = 'ENCODED CORRECTLY!'
-        lines = ''
-        with open(in_path + '/high_level_compress'+folder_num+'/' + target + '.csv', newline='') as f:
+        result = "ENCODED CORRECTLY!"
+        hl_file = os.path.join(in_path, "high_level_compress", f"{target}.csv")
+        with open(hl_file, newline="") as f:
             lines = f.readlines()
-        for i,l in enumerate(lines):
-            l = list(l.replace('\r', '').replace('\n', '').split(','))
-            if (l != decoded_lines[i]):
-                print(l)
-                print(decoded_lines[i])
-                result = 'ENCODED WRONG!!'
+        for i, l in enumerate(lines):
+            parts = [
+                p.strip()
+                for p in l.replace("\r", "").replace("\n", "").split(",")
+                if p.strip() != ""
+            ]
+            try:
+                row_ints = list(map(int, parts))
+            except ValueError:
+                row_ints = []
+            if i >= len(decoded_lines) or row_ints != decoded_lines[i]:
+                result = "ENCODED WRONG!!"
                 break
-        print(target + ' huffman : ' + result)
+        print(target + " huffman : " + result)
 
-    helper_decompress('deltas')
-    helper_decompress('counts')
+    helper_decompress("deltas")
+    helper_decompress("counts")
