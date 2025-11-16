@@ -1,12 +1,15 @@
 # Single-cell RNA Compression using Clusters and Huffman Encoding
 
 ## Abstract
+
 Single-cell RNA sequencing (scRNA-seq) technologies produce large and sparse count matrices that pose significant storage challenges, especially when scaling to datasets containing many samples. This project aims to develop a lossless delta encoding method to substantially reduce the storage footprint of scRNA count matrices compressed using current formats such as CSR, CSC, MTX, and gzip. Our approach leverages existing clustering algorithms to identify groups of similar cells based on their gene expression profiles. For each cluster, we generate a set of reference genes composed of genes commonly expressed across all cells in the cluster. Each individual cell is then represented by storing only genes that differ from the reference in the cluster. The delta-compressed files are then further compressed using Huffman encoding. We evaluated the effectiveness of our method by applying it to a dataset comprising multiple scRNA count matrices and compared the storage of our compressed file with other compression formats. We found that our compression method reduced the storage space by over 83 percent for one of the scRNA matrices stored MTX format.
 
 ## Running our Compression Pipeline
+
 1. Retrieve cluster labels by running k-means or our neural.ipynb notebook.
 2. Set the sample dataset number and path that you wish to store the output in compression_pipeline.ipynb
 3. Run the compression_pipeline.ipynb notebook
+
 # Single-cell RNA Compression using Clusters and Huffman Encoding
 
 ## Overview
@@ -58,7 +61,7 @@ The resulting gene expression matrices are extremely sparse, with most entries b
 
 ### Data Acquisition and Preprocessing
 
-- Two representative scRNA-seq datasets (Sample 1 and Sample 2) were obtained from the Gene Expression Omnibus.
+- Two representative scRNA-seq datasets (Samples 1-5) were obtained from a [study](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE294399) on breast cancer tumor cells on the Gene Expression Omnibus website.
 - Preprocessing included quality control, normalization, and conversion to MTX, CSR, and CSC formats using Python (`scipy`, `numpy`).
 - Both compressed and uncompressed versions of each format were benchmarked.
 
@@ -131,7 +134,7 @@ Please see the `reference.bib` file for all citations, including:
 
 ## Source Code
 
-All code for this project is available at:  
+All code for this project is available at:
 [https://github.com/Neko-23/scRNA_Compression](https://github.com/Neko-23/scRNA_Compression)
 
 If the repository is private, please ensure that all relevant reviewers have access.
