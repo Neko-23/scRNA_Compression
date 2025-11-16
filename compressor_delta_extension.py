@@ -129,7 +129,12 @@ def compress(cluster_assignments_file, matrix_path, out_path):
             writer.writerow(c)
 
     # compress deltas further
+    # total time complexity:
+    # O(N*M + 2^(M^2) + chosens * N)
+    # ~O(2^(M^2)), where M is the number of unqiue gene identifiers
     def compress_high_level_deltas(in_path):
+        # N cells and M genes
+        # Reading deltas.csv is O(N*M)
         with open(in_path + '/high_level_compress_delta_extension/deltas.csv', newline='') as f:
             reader = csv.reader(f)
             dataset = []
@@ -144,6 +149,7 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         support = 0.95
         iter = 1
         while len(chosens) < 2000:
+            # O(N*M)
             te = TransactionEncoder()
             te_ary = te.fit(dataset).transform(dataset)
             df = pd.DataFrame(te_ary, columns=te.columns_)
@@ -153,11 +159,13 @@ def compress(cluster_assignments_file, matrix_path, out_path):
             else:
                 df_iter = df
 
+            # fpgrowth fit function is O(2^(M^2))
             s = fpgrowth(df_iter, min_support=support, use_colnames=True, max_len = 2)
 
             mlength = 1
             chosen = []
             choice = None
+            # below for loop is O(M^2)
             for ele in s['itemsets']:
                 if len(ele) > mlength:
                     mlength = len(ele)
@@ -181,6 +189,7 @@ def compress(cluster_assignments_file, matrix_path, out_path):
 
             deltas = [set(x) for x in dataset]
             flag = []
+            # O(number of chosens * N)
             for c in chosen:
                 f = set()
                 for i, d in enumerate(deltas):
@@ -194,6 +203,7 @@ def compress(cluster_assignments_file, matrix_path, out_path):
             iter += 1
             dataset = [list(x) for x in deltas]
         
+        # writing file is O(total number of unique chosen pairs + N*M)
         with open(in_path + '/high_level_compress_delta_extension/deltas.csv', 'w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([len(chosens)]) # number of common item sets
