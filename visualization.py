@@ -52,7 +52,7 @@ def create_bar_charts(path, sample, k):
         # Save the fig
         plt.savefig(path + '/storage_comparisons' + directory_extension + '.png', dpi=300, bbox_inches='tight')
 
-def create_pie_chart(path):
+def create_pie_chart(path, sample, k):
     data = []
     for prefix in ['high', 'low']:
         for extension in ['', '_count_extension', '_delta_extension', '_count_and_delta_extension']:
@@ -91,7 +91,7 @@ def create_pie_chart(path):
         # Format the value to display as an integer with "MB" suffix
         return f'{pct:.1f}%\n({actual_value:.2f} MB)'
 
-    # Iterate through the data and plot each pie chart
+    # Iterate through the data and plot each pie chartx
     colors = plt.cm.Set2.colors
     for i, ax in enumerate(axes):
         if i < len(data):  # Ensure we don't go out of bounds if data is less than 8
@@ -99,7 +99,8 @@ def create_pie_chart(path):
             ax.pie(data[i][0], labels=data[i][1], colors=colors, autopct=autopct_mb_format, pctdistance=0.75, startangle=90, textprops={'fontsize': 8})
             ax.set_title(data[i][2])
             ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-
+    
+    fig.suptitle('Storage of scRNA Matrix '+str(sample)+' over the Type of Compression Used for k='+str(k)+' Clusters', fontsize=16)
     plt.tight_layout()  # Adjusts subplot parameters for a tight layout
     plt.savefig(os.path.join(path, 'storage_pie_chart.png'))
     plt.show()

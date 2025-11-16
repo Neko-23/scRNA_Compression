@@ -185,37 +185,12 @@ def high_level_decompress(in_path, matrix_path):
     counts = []
     with open(in_path + '/deltas.csv', newline='') as f:
         reader = csv.reader(f)
-        if in_path[-1] == '2':
-            num_item_sets = 0
-            item_sets = []
-            deltas = []
-            for i, row in enumerate(reader):
-                if i == 0:
-                    num_item_sets = int(row[0])
-                elif i <= num_item_sets:
-                    item_sets.append((int(row[0]), int(row[1])))
-                else:
-                    delta = []
-                    for c in row:
-                        if c[0] != '#':
-                            delta.append(int(c))
-                        else:
-                            a, b = item_sets[int(c[1:])]
-                            delta.append(a)
-                            delta.append(b)
-                    deltas.append(delta)
-            
-            for i, d in enumerate(deltas):
-                gene_map[i] = [d[0], set(d[1:])]
-                cluster_map[d[0]].add(i)
-                num_cells = i            
-        else:
-            for i, row in enumerate(reader):
-                cluster = int(row[0])
-                genes = set(map(int, row[1:])) if len(row) > 1 else set()
-                gene_map[i] = [cluster, genes]
-                cluster_map[cluster].add(i)
-                num_cells = i
+        for i, row in enumerate(reader):
+            cluster = int(row[0])
+            genes = set(map(int, row[1:])) if len(row) > 1 else set()
+            gene_map[i] = [cluster, genes]
+            cluster_map[cluster].add(i)
+            num_cells = i
         f.close()
 
     with open(in_path + '/cluster_genes.csv', newline='') as f:
