@@ -61,7 +61,11 @@ The resulting gene expression matrices are extremely sparse, with most entries b
 
 ### Data Acquisition and Preprocessing
 
-- Five representative scRNA-seq datasets (Samples 1-5) were obtained from a [study](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE294399) on breast cancer tumor cells on the Gene Expression Omnibus website.
+- Five representative scRNA-seq datasets on the Gene Expression Omnibus website.
+  - Samples 1-5 were obtained from a [study](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE294399) on breast cancer tumor cells on the Gene Expression Omnibus website.
+  - Sample 6 is obtained from a [study](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE309844) on the amphibious plant Water wisteria.
+  - Sample 7 is obtained from a [study](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM9235034) on the human Entorhinal Cortex across diverse risk of Alzheimer’s disease
+  - Sample 8 is obtained from a [study](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8738923) on the macrophage-mediated lung cell senescence upon SARS-CoV-2 infection
 - Preprocessing included quality control, normalization, and conversion to MTX, CSR, and CSC formats using Python (`scipy`, `numpy`).
 - Both compressed and uncompressed versions of each format were benchmarked.
 
