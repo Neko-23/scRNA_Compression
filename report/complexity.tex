@@ -1,0 +1,152 @@
+% report/complexity.tex
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{geometry}
+\geometry{margin=1in}
+	itle{Computational Complexity Analysis: \texttt{compressor\_counts\_and\_delta\_extension.py}}
+\author{scRNA\_Compression (Neko-23)}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Scope}
+This short technical note gives a concise, accurate time and space complexity analysis
+for the major routines implemented in \texttt{compressor\_counts\_and\_delta\_extension.py}.
+We analyze: \texttt{compress()}, the delta-extension mining routine (\texttt{compress\_high\_level\_deltas}),
+	exttt{low\_level\_compress()}, and \texttt{high\_level\_decompress()}. The goal is to provide clear
+asymptotic bounds and a brief remark on practical bottlenecks.
+
+\section*{Notation and assumptions}
+Let
+\begin{itemize}
+	\item $G$ = number of genes (matrix rows),
+	\item $N$ = number of cells (matrix columns),
+	\item $\mathrm{nnz}$ = total nonzero entries in the input sparse matrix ($=\sum_{i=1}^N \mathrm{nnz}_i$),
+	\item $m = \max_i \mathrm{nnz}_i$ (maximum nonzeros in a single column),
+	\item $L$ = total number of tokens in the high-level counts representation (approx. compressed length; $L\le \mathrm{nnz}+O(N)$),
+	\item $D$ = average length of a \texttt{delta} vector per cell (distinct items per cell in deltas),
+	\item $S$ = number of dataset rows supplied to the fpgrowth call (in code this is either the full dataset or a sampled subset),
+	\item $U$ = number of distinct tokens (alphabet size) used by Huffman encoding.
+\end{itemize}
+
+We assume standard implementations of SciPy sparse (CSC/CSR) with column indices stored in nondecreasing order.
+
+\section*{Function-by-function analysis}
+
+\subsection*{1. \texttt{compress(cluster\_assignments\_file, matrix\_path, out\_path)}}
+Behavior (summary): reads the input sparse matrix with \texttt{mmread(...).tocsc()}, builds per-cluster
+intersections \texttt{cluster\_genes} by collecting per-cell sets and intersecting them, computes per-cell
+``deltas'' (set difference to cluster_genes), sorts the nonzero row indices per cell, produces run-length-style
+compressed tokens, and writes three CSVs (\texttt{cluster\_genes.csv}, \texttt{deltas.csv}, \texttt{counts.csv}).
+
+Time complexity:
+\begin{itemize}
+	\item Reading and converting to CSC: $O(\mathrm{read\_mm})$ and representation $O(\mathrm{nnz})$.
+	\item Building per-cell sets: scanning nonzeros once, $O(\mathrm{nnz})$ total.
+	\item Cluster intersections: cost depends on cluster sizes; upper bounded by $O(\mathrm{nnz})$ under typical sparsity assumptions.
+	\item Per-cell sorting: each column's indices are sorted using \texttt{np.argsort(rows)} costing $O(\mathrm{nnz}_i \log \mathrm{nnz}_i)$;
+		summed across cells gives $O(\mathrm{nnz} \log m)$ where $m=\max_i \mathrm{nnz}_i$.
+	\item Tokenization and CSV writes: linear in output length $O(L)$.
+\end{itemize}
+Dominant bound: $T_{\text{compress}} = O(\mathrm{nnz}\log m + L)$. If you avoid per-column sorting (CSC indices are canonical
+and already ordered) this reduces to $O(\mathrm{nnz}+L)=O(\mathrm{nnz})$.
+
+Space complexity:
+\begin{itemize}
+	\item Input sparse matrix: $O(\mathrm{nnz})$.
+	\item Per-cell sets for cluster intersection: collectively up to $O(\mathrm{nnz})$.
+	\item In-memory lists \texttt{counts} and \texttt{compressed\_counts} before writing: $O(L)$.
+\end{itemize}
+Peak memory: $S_{\text{compress}}=O(\mathrm{nnz}+L)=O(\mathrm{nnz})$ (practical factor >1 because structures coexist).
+
+\subsection*{2. \texttt{compress\_high\_level\_deltas()} (FP-growth-based mining)}
+Behavior (summary): reads \texttt{deltas.csv} into a list of transactions (one per cell), then repeatedly
+applies a TransactionEncoder + \texttt{fpgrowth} on either the full dataset or a small sampled subset (the code
+samples when \texttt{support < 1}) to discover frequent itemsets; the loop continues until a target number of
+``chosens'' is accumulated. For each discovered common itemset the routine updates the per-cell deltas by
+removing the itemset elements and records flags describing which cells used that itemset. Finally it writes an
+augmented \texttt{deltas.csv} that records itemset identifiers and uses short tags (e.g. ``#j'').
+
+Time complexity (worst-case / practical):
+\begin{itemize}
+	\item Reading \texttt{deltas.csv} into \texttt{dataset}: $O(N\cdot D)$ time and $O(N\cdot D)$ memory.
+	\item Each loop iteration builds a dense boolean matrix via \texttt{TransactionEncoder.fit(dataset).transform(dataset)};
+		this produces an $S \times M$ boolean array (where $M$ is number of distinct delta items) and costs $O(S\cdot M)$ time
+		and memory for the intermediate array. The code sets $S$ to a small sample (\texttt{n=2}) only when \texttt{support<1},
+		otherwise $S=N$.
+	\item \texttt{fpgrowth} complexity depends on the number of frequent itemsets and dataset density: worst-case it can be
+		exponential in $M$ (number of distinct items), but in practice the runtime is dominated by the cost of scanning
+		the boolean DataFrame and building candidate itemsets. For a single run on $S$ rows, a practical upper bound is
+		$O(S \cdot M + \text{#frequent\,itemsets} \cdot \ell)$ where $\ell$ is average itemset length.
+	\item The outer loop repeats until \texttt{len(chosens) >= 2000} (or earlier), so in the worst-case the mining
+		stage may run many iterations; the overall cost multiplies by the number of iterations $I$ performed.
+\end{itemize}
+
+Practical summary: the mining routine is the single heaviest and least predictable component. Its cost is roughly
+\[T_{\text{mining}} = O\big(I\cdot (S\cdot M + \text{cost\_fpgrowth}(S,M))\big)\]
+where $I$ is the number of iterations until termination. For small sampled $S$ this can be inexpensive, but for full
+dataset runs ($S=N$) and moderate $M$ it can be expensive in both CPU and memory.
+
+Space complexity: dominated by the dense boolean matrix of size $S\times M$ during a TransactionEncoder transform: $O(S\cdot M)$.
+
+\subsection*{3. \texttt{low\_level\_compress(target)}}
+Behavior: reads the entire target CSV into memory as \texttt{lines}, flattens tokens to a \texttt{content} list (strings),
+builds a Huffman tree using frequencies (\texttt{Counter(content)}), then encodes the tokens to a bitstream written to file.
+
+Time complexity:
+\begin{itemize}
+	\item Reading lines and building \texttt{content}: $O(L)$ time and $O(L)$ memory.
+	\item Building Huffman tree: $O(U\log U)$ where $U$ is the number of distinct tokens (usually $U\ll L$).
+	\item Encoding pass: linear in the number of bits produced, i.e. $O(L\cdot \bar{b})$ where $\bar{b}$ is average code length.
+\end{itemize}
+
+Space complexity: $S_{\text{huffman}} = O(L)$ due to the full token list and decoded structures stored during processing.
+
+\subsection*{4. \texttt{high\_level\_decompress(in\_path, matrix\_path)}}
+Behavior: reads the extended \texttt{deltas.csv} format created by the mining step, reconstructs \texttt{gene\_map} and
+	exttt{cluster\_map}, reads \texttt{counts.csv} and expands run-length tokens into explicit per-cell arrays,
+then assembles COO lists (rows, cols, data) and converts them to CSR to compare against the original matrix.
+
+Time complexity:
+\begin{itemize}
+	\item Parsing deltas and cluster genes: $O(N\cdot D)$ to read and build maps.
+	\item Expanding counts: linear in expanded length $L_{\text{expanded}}$ (typically $\approx\mathrm{nnz}$).
+	\item Building COO and converting to CSR: $O(\mathrm{nnz})$.
+\end{itemize}
+Hence $T_{\text{decompress}}=O(\mathrm{nnz}+N\cdot D)$.
+
+Space complexity:
+\begin{itemize}
+	\item Expanded \texttt{counts}: $O(L_{\text{expanded}})\approx O(\mathrm{nnz})$,
+	\item COO lists: $O(\mathrm{nnz})$,
+	\item Original matrix loaded for comparison: $O(\mathrm{nnz})$.
+\end{itemize}
+Peak memory is therefore $\Theta(\mathrm{nnz})$ with practical multiplicative factors (2--3$\times$).
+
+\section*{Practical bottlenecks and concise recommendations}
+In order of expected payoff:
+\begin{enumerate}
+	\item \textbf{Mining: sample or restrict candidate space.} The FP-growth stage is the least predictable cost. Use a
+		principled sampling strategy, increase the minimal support threshold, or restrict feature dimensionality $M$ to
+		keep the boolean DataFrame small ($S\cdot M$ manageable).
+	\item \textbf{Stream CSVs instead of building large in-memory token lists.} Both the compressor and Huffman stages
+		maintain full \texttt{lines} / \texttt{content} lists; switching to streaming (two-pass frequency collection then streaming encode)
+		reduces peak memory from $O(L)$ to $O(U)$ (small) plus buffer size.
+	\item \textbf{Avoid unnecessary sorts.} If CSC column indices are already sorted, skip per-column \texttt{argsort}.
+	\item \textbf{Stream decompression/avoid storing expanded counts.} Expand a single row, append its contributions to COO lists,
+		and discard the row; this reduces simultaneous memory from $2\cdot\mathrm{nnz}$ to about $1\cdot\mathrm{nnz}$.
+\end{enumerate}
+
+\section*{Summary}
+The file implements a complete pipeline that is asymptotically linear in the number of nonzeros for both compression
+and decompression except where internal sorts or heavy mining loops add multiplicative factors. The FP-growth based
+delta-extension step is the primary non-linear and data-dependent component and should be constrained or sampled for
+large datasets. Streaming IO and avoiding duplicate in-memory representations are the highest-value practical changes.
+
+\vspace{1em}
+\noindent{}Prepared by the analysis agent; update this note after code changes that affect data representation or the mining strategy.
+
+\end{document}
+
