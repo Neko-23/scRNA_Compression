@@ -70,6 +70,81 @@ For each cluster, a reference gene expression profile is constructed by identify
 \subsection{FP-growth Compression of Delta Matrix}
 We improved on the compression of the deltas file by using an FP-growth inspired algorithm. Because scRNA data contains many cells with co-expressed genes, capturing these patterns is more effective at encoding the data compactly than treating each count independently [2][3]. FP growth here is used to discover the frequently co-occuring sets of genes across samples, and then constructs a dictionary greedily where occurrences are replaced by short references, with iterative updating to find new patterns. First, the code loops through a predetermined number of 2000 patterns, builds a boolean transaction matrix, runs fp growth to obtain a set of frequent genes, selects a single largest (by cardinality) gene from the returned sets and then greedily adds further genes that are entirely disjoint. These genes are then removed from rows they are found in, and flags are added to indicate their location. The output file now contains, in its first row, the total number of chosen genes, and in the next rows, it specifies the genes, and the remaining rows contain the list of pattern references applying to the row, as well as remaining elements. We use a greedy algorithm that selects the largest gene patterns first as a strong heuristic for set cover. This results in significant storage size reduction as well as compression of regularities that Huffman encoding alone cannot exploit. We use a cap of 2000 on the dictionary size as a computational tradeoff between increased capacity for compression and increase in FP-growth work and memory usage. We set an initial support of 0.95 to start with the most frequent patterns first, and then decrement this by 0.01 aggressively when no results are returned. Although FP-growth worst-case complexity is exponential in terms of distinct items[1], our code mitigates this through lowering support iteratively and sampling when support is less than 1. We use random sampling when mining on large datasets for speed improvements, using n=2. (Is this a bug?) We use a cap of 2 for the max length of patterns to dramatically reduce memory complexity. This reduces complexity of pattern mining but misses larger co-occurrence patterns. Furthermore, although the iteration process can result in order dependence,... The overall complexity of this implementation is as follows: Let $N$ be the number of rows or cells, let $G$ be the number of distinct genes present in each row, and let $s$ be the support threshold applied. To construct the TransactionEncoder and the boolean DataFrame requires $O(N\cdot G_{sampled})$ time and $O(N\cdot G_{sampled})$ memory. The FP-growth algorithm is exponential in the worst case, but practical runtime for our sparse data << exponential. Post-processing, in which we find rows including gene subset $c$, is approximately $O(N\cdot P)$ where $P$ is the total pattern mass.
 
+% Pseudocode for compress_high_level_deltas(), LaTeX-friendly (algorithmic style)
+\begin{algorithmic}[1]
+\Function{compress\_high\_level\_deltas}{high\_level\_dir}
+  \State read rows from \texttt{deltas.csv} into \texttt{dataset} (list of lists) and \texttt{cluster\_labels}
+  \State \texttt{chosens} $\leftarrow$ [] \Comment{selected genes}
+  \State \texttt{flags} $\leftarrow$ [] \Comment{for each chosen gene, set of row indices where it applied}
+  \State \texttt{support} $\leftarrow 0.95$, \texttt{iter} $\leftarrow 1$
+  \While{length(\texttt{chosens}) < 2000}
+    \State build transaction boolean array: \texttt{te\_ary} $\leftarrow$ TransactionEncoder().fit(dataset).transform(dataset)
+    \State \texttt{df} $\leftarrow$ DataFrame(\texttt{te\_ary}) with columns = items
+    \If{\texttt{support} < 1}
+      \State \texttt{df\_iter} $\leftarrow$ random sample of \texttt{df} (seed=\texttt{iter})
+    \Else
+      \State \texttt{df\_iter} $\leftarrow$ \texttt{df}
+    \EndIf
+    \State \texttt{results} $\leftarrow$ fpgrowth(\texttt{df\_iter}, min\_support=\texttt{support}, max\_len=2)
+    \State find the largest gene in \texttt{results} (by cardinality) $\to$ \texttt{choice}
+    \If{\texttt{choice} is None}
+      \State \texttt{support} $\leftarrow$ \texttt{support} - 0.01; round support; \texttt{iter}++; \textbf{continue}
+    \EndIf
+    \State \texttt{chosen} $\leftarrow$ [\texttt{choice}]
+    \State \texttt{temp\_set} $\leftarrow$ \texttt{choice}
+    \For{each \texttt{ele} in \texttt{results.genes}}
+      \State \texttt{ele\_set} $\leftarrow$ set(\texttt{ele})
+      \If{len(\texttt{ele}) > 1 and \texttt{temp\_set} $\cap$ \texttt{ele\_set} is empty}
+        \State \texttt{temp\_set} $\leftarrow$ \texttt{temp\_set} $\cup$ \texttt{ele\_set}
+        \State append \texttt{ele\_set} to \texttt{chosen}
+      \EndIf
+    \EndFor
+    \If{len(\texttt{chosen}) < 50}
+      \State \texttt{support} $\leftarrow$ \texttt{support} - 0.01; round support
+    \EndIf
+    \State append \texttt{chosen} to \texttt{chosens}
+    \State \texttt{deltas} $\leftarrow$ [set(row) for row in dataset]
+    \State \texttt{flag\_batch} $\leftarrow$ []
+    \For{each pattern \texttt{c} in \texttt{chosen}}
+      \State \texttt{f} $\leftarrow$ empty set
+      \For{each index $i$, row $d$ in enumerate(\texttt{deltas})}
+        \If{\texttt{c} $\subseteq d$}
+          \State remove \texttt{c} from \texttt{d} \Comment{deltas[i] := d \textbackslash c}
+          \State add $i$ to \texttt{f}
+        \EndIf
+      \EndFor
+      \State append \texttt{f} to \texttt{flag\_batch}
+    \EndFor
+    \State append \texttt{flag\_batch} to \texttt{flags}
+    \State \texttt{dataset} $\leftarrow$ [list(d) for d in \texttt{deltas}]
+    \State \texttt{iter} $\leftarrow$ \texttt{iter} + 1
+  \EndWhile
+
+  \State open \texttt{deltas.csv} for writing
+  \State write single row: [len(\texttt{chosens})]
+  \For{each chosen pattern in \texttt{chosens}} \State write pattern as row
+  \EndFor
+  \For{each row index $i$, residual set $d$ in \texttt{deltas}}
+    \State row $\leftarrow$ [cluster\_labels[i]]
+    \For{each pattern index $j$, flag set in \texttt{flags}}
+      \If{$i \in$ flag set} append "\#j" to row
+      \EndIf
+    \EndFor
+    \State append residual elements of $d$ to row and write row
+  \EndFor
+\EndFunction
+\end{algorithmic}
+
+[1] J. Han, J. Pei, and Y. Yin, “Mining frequent patterns without candidate generation,” Proceedings of the 2000 ACM SIGMOD International Conference on Management of Data, 2000.
+[2] mlxtend documentation — TransactionEncoder and fpgrowth implementation (Raschka, mlxtend).
+[3] J. Ziv and A. Lempel, “A universal algorithm for sequential data compression,” IEEE Transactions on Information Theory, 1977 (LZ dictionary methods used with entropy coding in practice).
+[4] M. Garey and D. S. Johnson, “Computers and Intractability: A Guide to the Theory of NP‑Completeness,” for background on optimal dictionary/cover selection hardness.
+
+\subsection{Run-Length Encoding of Counts Matrix}
+We perform one additional step here: we improve upon the compression of the counts matrix by collapsing consecutive ones into a single negative run-length token. This exploits the sparsity of the dataset: zero values are omitted in this counts matrix, and the most frequent nonzero entries are 1. This form of run-length encoding (RLE) reduces serialized size that entropy coders compress well. By reducing the number of repeated 1 tokens and concentrating probability mass into run tokens, the entropy of the dataset is increased, resulting in greater capacity for Huffman encoding to produce shorter codes. 
+
+[1] Zheng GX et al., “Massively parallel digital transcriptional profiling of single cells,” Nat Commun 2017. https://www.nature.com/articles/ncomms14049 
+
 \subsection{Low-level Compression with Huffman Encoding}
 To further reduce the size of the delta-encoded files, we apply Huffman encoding. We used existing code found on the (\href{https://www.geeksforgeeks.org/huffman-coding-in-python/}{GeeksforGeeks}) website that uses the \texttt{heapq} and \texttt{collections} Python libraries to implement Huffman encoding. We applied Huffman encoding to both \texttt{deltas.csv} and \texttt{counts.csv} but not to \texttt{cluster\_genes.csv}. Because \texttt{cluster\_genes.csv} often takes a small amount of storage ($<$ 1 MB), applying Huffman encoding to that file increases the overall storage rather than decreasing it. The Huffman trees for both encoded files are stored as a pickled \texttt{.pkl} object. Both uncompressed and gzip-compressed Huffman-encoded files are produced for each cluster-based method and stored in folders \texttt{LX} and \texttt{LX.gz} respectively.
 
