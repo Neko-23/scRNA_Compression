@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Define arrays for the outer and inner loops
-outer_elements=(4 5 6 7 8)
-inner_numbers=(2 5 10 20 30)
+outer_elements=(6)
+inner_numbers=(5 10 20 30)
 
 # Outer loop
 for sample in "${outer_elements[@]}"; do

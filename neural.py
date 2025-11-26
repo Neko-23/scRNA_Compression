@@ -108,7 +108,6 @@ def assign_clusters(sample, k):
     plt.ylabel('t-SNE Dimension 2')
     plt.colorbar(label='Cluster')
     plt.savefig(prefix_path+'/clusters.png')
-    plt.show()
 
     # Pickle the array and save to a file
     filename = prefix_path + '/cluster_labels.pkl'

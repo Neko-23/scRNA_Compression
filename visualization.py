@@ -103,4 +103,3 @@ def create_pie_chart(path, sample, k):
     fig.suptitle('Storage of scRNA Matrix '+str(sample)+' over the Type of Compression Used for k='+str(k)+' Clusters', fontsize=16)
     plt.tight_layout()  # Adjusts subplot parameters for a tight layout
     plt.savefig(os.path.join(path, 'storage_pie_chart.png'))
-    plt.show()
