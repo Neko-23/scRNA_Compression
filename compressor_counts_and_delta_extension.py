@@ -7,6 +7,9 @@ from scipy.sparse import coo_matrix, csr_matrix
 import heapq
 import collections
 import os
+import time
+import psutil
+import math
 
 # fpgrowth libraries
 from mlxtend.preprocessing import TransactionEncoder
@@ -66,6 +69,10 @@ def print_tree(node, prefix="", is_left=True):
 
 
 def compress(cluster_assignments_file, matrix_path, out_path):
+    process = psutil.Process(os.getpid())
+    start = int(process.memory_info().rss)
+    start_time = time.perf_counter()
+
     # Load the pickled array from the file
     extension = cluster_assignments_file.split(".")[-1]
     if extension == "pkl":
@@ -132,6 +139,16 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         counts.append(next_row)
         compressed_counts.append(next_row_compressed)
 
+    mid_time = time.perf_counter()
+    mid_rss = int(process.memory_info().rss)
+    runlentoks = np.concatenate(compressed_counts)
+    print(f'total runlentok: {np.sum(runlentoks)}')
+    print(f'median runlentok: {np.median(runlentoks)}')
+    print(f'75th percentile runlentok: {np.percentile(runlentoks, 75)}')
+    print(f'95th percentile runlentok: {np.percentile(runlentoks, 95)}')
+    mid_time2 = time.perf_counter()
+    mid_rss2 = int(process.memory_info().rss)
+
     high_level_dir = os.path.join(out_path, "high_level_compress_count_and_delta_extension")
     os.makedirs(high_level_dir, exist_ok=True)
     with open(
@@ -150,6 +167,13 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         writer = csv.writer(file)
         for c in compressed_counts:
             writer.writerow(c)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time - (mid_time2 - mid_time)
+    current = int(process.memory_info().rss)
+    elapsed_rss = int(current)-int(start)
+    elapsed_rss -= int(mid_rss2-mid_rss)
+    print(f'high-level rss (MB): {elapsed_rss/1e6}')
+    print(f"high-level elapsed wall time: {elapsed_time:.6f} seconds")
     
     # compress deltas further
     def compress_high_level_deltas():
@@ -231,7 +255,15 @@ def compress(cluster_assignments_file, matrix_path, out_path):
                 writer.writerow(row)
             file.close()
 
+    process = psutil.Process(os.getpid())
+    start = int(process.memory_info().rss)
+    start_time = time.perf_counter()
     compress_high_level_deltas()
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    current = int(process.memory_info().rss)
+    print(f'fpgrowth rss (MB): {(current-start)/1e6}')
+    print(f"fpgrowth elapsed wall time: {elapsed_time:.6f} seconds")
 
     def low_level_compress(target):
         src_file = os.path.join(high_level_dir, f"{target}.csv")
@@ -246,9 +278,24 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         if content:
             content = content[:-1]
 
-        root = build_huffman_tree(collections.Counter(content))
+        freq_dict = collections.Counter(content)
+        root = build_huffman_tree(freq_dict)
         huffman_codes = generate_huffman_codes(root)
-
+        
+        mid_time = time.perf_counter()
+        mid_rss = int(process.memory_info().rss)
+        print(f'{target} # distinct symbols: {len(huffman_codes.keys())}')
+        print(f'{target} avg code len: {np.mean([len(x) for x in huffman_codes.values()])}')
+        # calculate entropy
+        total = sum(freq_dict.values())
+        entropy = 0
+        for v in freq_dict.values():
+            prob = v/total
+            entropy += (-prob*math.log2(prob))
+        print(f'{target} entropy: {entropy}')
+        mid_time2 = time.perf_counter()
+        mid_rss2 = int(process.memory_info().rss)
+            
         # Pickle the array and save to a file
         low_level_dir = os.path.join(out_path, "low_level_compress_count_and_delta_extension")
         os.makedirs(low_level_dir, exist_ok=True)
@@ -289,10 +336,20 @@ def compress(cluster_assignments_file, matrix_path, out_path):
                 leftover = leftover.ljust(8, "0")
                 byte_value = int(leftover, 2)
                 file.write(bytes([byte_value]))
+        
+        return (mid_time2-mid_time, mid_rss2-mid_rss)
 
-    low_level_compress("deltas")
-    # low_level_compress('counts')
-    low_level_compress("counts")
+    process = psutil.Process(os.getpid())
+    start_time = time.perf_counter()
+    start = int(process.memory_info().rss)
+    mid_time_duration, mid_rss_chunk = low_level_compress("deltas")
+    mid_time_duration2, mid_rss_chunk2 = low_level_compress("counts")
+    current = int(process.memory_info().rss)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time - mid_time_duration - mid_time_duration2
+    elapsed_rss = current-start
+    print(f'huffman rss (MB): {elapsed_rss/1e6}')
+    print(f"huffman elapsed wall time: {elapsed_time:.6f} seconds")
 
 
 def high_level_decompress(in_path, matrix_path):

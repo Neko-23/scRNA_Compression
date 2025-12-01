@@ -8,6 +8,8 @@ import heapq
 import collections
 import os
 import shutil
+import time
+import psutil
 
 #fpgrowth libraries
 from mlxtend.preprocessing import TransactionEncoder
@@ -80,6 +82,10 @@ def copy_file(source_path, destination_path):
         print(f"An unexpected error occurred: {e}")
 
 def compress(cluster_assignments_file, matrix_path, out_path):
+    process = psutil.Process(os.getpid())
+    start = process.memory_info().rss
+    start_time = time.perf_counter()
+
     # Load the pickled array from the file
     extension = cluster_assignments_file.split('.')[-1]
     if extension == 'pkl':
@@ -127,6 +133,11 @@ def compress(cluster_assignments_file, matrix_path, out_path):
         writer = csv.writer(file)
         for c in counts:
             writer.writerow(c)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    current = process.memory_info().rss
+    print(f'high-level rss (MB): {(current-start)/1e6}')
+    print(f"high-level elapsed wall time: {elapsed_time:.6f} seconds")
 
     # compress deltas further
     # total time complexity:
@@ -218,7 +229,15 @@ def compress(cluster_assignments_file, matrix_path, out_path):
                 writer.writerow(row)
             file.close()
 
+    process = psutil.Process(os.getpid())
+    start = process.memory_info().rss
+    start_time = time.perf_counter()
     compress_high_level_deltas(out_path)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    current = process.memory_info().rss
+    print(f'fpgrowth rss (MB): {(current-start)/1e6}')
+    print(f"fpgrowth elapsed wall time: {elapsed_time:.6f} seconds")
 
     def low_level_compress(target):
         high_level_dir = os.path.join(out_path, "high_level_compress_delta_extension")
@@ -278,8 +297,16 @@ def compress(cluster_assignments_file, matrix_path, out_path):
                 byte_value = int(leftover, 2)
                 file.write(bytes([byte_value]))
 
+    process = psutil.Process(os.getpid())
+    start = process.memory_info().rss
+    start_time = time.perf_counter()
     low_level_compress("deltas")
     low_level_compress("counts")
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    current = process.memory_info().rss
+    print(f'huffman rss (MB): {(current-start)/1e6}')
+    print(f"huffman elapsed wall time: {elapsed_time:.6f} seconds")
 
 def high_level_decompress(in_path, matrix_path):
     gene_map = defaultdict(lambda: [None, set()])
